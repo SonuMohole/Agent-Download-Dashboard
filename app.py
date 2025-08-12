@@ -1,24 +1,27 @@
 import hashlib
 import os
 import secrets
-from datetime import datetime
+import socket
+from datetime import datetime, timedelta
 
 from flask import (Flask, abort, jsonify, redirect, render_template, request,
                    send_from_directory, session, url_for)
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(16)  # Secret for sessions
+app.secret_key = secrets.token_hex(16)
 
-BASE_DIR = os.path.dirname(__file__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FILES_DIR = os.path.join(BASE_DIR, "files")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOGS_DIR, exist_ok=True)
-LOG_FILE = os.path.join(LOGS_DIR, "downloads.log")
+
+DOWNLOAD_LOG_FILE = os.path.join(LOGS_DIR, "downloads.log")
+HEARTBEAT_LOG_FILE = os.path.join(LOGS_DIR, "heartbeats.log")
 
 ALLOWED = {
-    "windows": "agent_api.zip",
-    "ubuntu":  "ubuntu_agent.sh",
-    "mac":     "mac_agent.pkg"
+    "windows": "agent_api.exe",
+    "ubuntu": "ubuntu_agent.sh",
+    "mac": "mac_agent.pkg"
 }
 
 USER_CREDENTIALS = {
@@ -37,8 +40,14 @@ def sha256_of_file(path):
 
 
 def log_download(os_name, ip):
-    with open(LOG_FILE, "a") as f:
-        f.write(f"{datetime.now().isoformat()} | {ip} | {os_name}\n")
+    """Log downloads with datetime, IP, hostname, and OS."""
+    try:
+        hostname = socket.gethostbyaddr(ip)[0]
+    except (socket.herror, socket.gaierror):
+        hostname = "Unknown"
+
+    with open(DOWNLOAD_LOG_FILE, "a") as f:
+        f.write(f"{datetime.now().isoformat()} | {ip} | {hostname} | {os_name}\n")
 
 
 @app.route("/")
@@ -105,18 +114,86 @@ def download_file(filename):
     return send_from_directory(FILES_DIR, filename, as_attachment=True)
 
 
+@app.route("/agent_heartbeat", methods=["POST"])
+def agent_heartbeat():
+    ip_address = request.remote_addr
+    now = datetime.now().isoformat()
+    with open(HEARTBEAT_LOG_FILE, "a") as f:
+        f.write(f"{now} | {ip_address}\n")
+    return jsonify({"status": "heartbeat received"})
+
+
 @app.route("/server_dashboard")
 def server_dashboard():
     if "user" not in session:
         return redirect("/")
+
     logs = []
-    if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "r") as f:
+    unique_ips = set()
+    latest_download_time = None
+
+    # Read download logs
+    if os.path.exists(DOWNLOAD_LOG_FILE):
+        with open(DOWNLOAD_LOG_FILE, "r") as f:
             for line in f:
                 parts = line.strip().split(" | ")
-                if len(parts) == 3:
-                    logs.append({"datetime": parts[0], "ip": parts[1], "os": parts[2]})
-    return render_template("server_dashboard.html", logs=logs)
+
+                if len(parts) == 4:  # New format: datetime | ip | hostname | os
+                    dt_str, ip, hostname, os_name = parts
+                elif len(parts) == 3:  # Old format without hostname
+                    dt_str, ip, os_name = parts
+                    hostname = "Unknown"
+                else:
+                    continue
+
+                try:
+                    dt = datetime.fromisoformat(dt_str)
+                except ValueError:
+                    continue
+
+                logs.append({
+                    "datetime": dt,
+                    "ip": ip,
+                    "hostname": hostname,
+                    "os": os_name
+                })
+                unique_ips.add(ip)
+
+                if latest_download_time is None or dt > latest_download_time:
+                    latest_download_time = dt
+
+    # Read heartbeats
+    heartbeats = {}
+    if os.path.exists(HEARTBEAT_LOG_FILE):
+        with open(HEARTBEAT_LOG_FILE, "r") as f:
+            for line in f:
+                parts = line.strip().split(" | ")
+                if len(parts) == 2:
+                    hb_time_str, ip = parts
+                    try:
+                        hb_time = datetime.fromisoformat(hb_time_str)
+                        if ip not in heartbeats or hb_time > heartbeats[ip]:
+                            heartbeats[ip] = hb_time
+                    except ValueError:
+                        continue
+
+    # Determine status
+    now = datetime.now()
+    ACTIVE_THRESHOLD = timedelta(seconds=1)
+
+    for log in logs:
+        last_hb = heartbeats.get(log["ip"])
+        if last_hb and (now - last_hb) <= ACTIVE_THRESHOLD:
+            log["status"] = "Active"
+        else:
+            log["status"] = "Inactive"
+
+    return render_template(
+        "server_dashboard.html",
+        logs=logs,
+        unique_ips=len(unique_ips),
+        latest_download_time=latest_download_time.strftime('%Y-%m-%d %H:%M:%S') if latest_download_time else "N/A"
+    )
 
 
 if __name__ == "__main__":
