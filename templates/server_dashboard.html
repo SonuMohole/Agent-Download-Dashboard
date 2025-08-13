@@ -3,35 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="refresh" content="5">
-
   <title>Server Dashboard</title>
-  <meta http-equiv="refresh" content="300" /> <!-- Refresh every 5 minutes -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <style>
-    body {
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    main {
-      flex: 1;
-    }
-    .os-badge-linux {
-      background-color: #28a745;
-    }
-    .os-badge-windows {
-      background-color: #007bff;
-    }
-    .os-badge-mac {
-      background-color: #6f42c1;
-    }
+    body { min-height: 100vh; display: flex; flex-direction: column; }
+    main { flex: 1; }
+    .os-badge-linux { background-color: #28a745; }
+    .os-badge-windows { background-color: #007bff; }
+    .os-badge-mac { background-color: #6f42c1; }
   </style>
 </head>
 <body class="bg-light">
   <!-- Navbar -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container">
-      <a class="navbar-brand" href="#">Server Dashboard</a>
+      <a class="navbar-brand" href="#">QSAgent Server Dashboard</a>
       <button class="btn btn-outline-light" onclick="window.location.href='/dashboard'">Back</button>
     </div>
   </nav>
@@ -72,8 +58,8 @@
           <tr>
             <th>Date &amp; Time</th>
             <th>IP Address</th>
-            <th>Hostname</th> <!-- New column -->
-            <th>OS Agent</th>
+            <th>Hostname</th>
+            <th>OS Details</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -82,25 +68,25 @@
           <tr>
             <td>{{ log.datetime.strftime('%Y-%m-%d %H:%M:%S') if log.datetime else 'N/A' }}</td>
             <td>{{ log.ip }}</td>
-            <td>{{ log.hostname }}</td>
+            <td>{{ log.hostname if log.hostname else 'Unknown' }}</td>
             <td>
-              {% if 'Linux' in log.os %}
+              {% if 'Linux' in log.os_name %}
                 <span class="badge os-badge-linux">Linux</span>
-              {% elif 'Windows' in log.os %}
+              {% elif 'Windows' in log.os_name %}
                 <span class="badge os-badge-windows">Windows</span>
-              {% elif 'Mac' in log.os %}
+              {% elif 'Mac' in log.os_name %}
                 <span class="badge os-badge-mac">Mac</span>
               {% else %}
-                <span class="badge bg-secondary">{{ log.os }}</span>
+                <span class="badge bg-secondary">{{ log.os_name }}</span>
               {% endif %}
             </td>
             <td>
-              {% if log.status == 'Active' %}
-                <span class="badge bg-success">Active</span>
-              {% elif log.status == 'Inactive' %}
-                <span class="badge bg-danger">Inactive</span>
+              {% if 'Active' in log.status %}
+                <span class="badge bg-success">{{ log.status }}</span>
+              {% elif 'Inactive' in log.status %}
+                <span class="badge bg-danger">{{ log.status }}</span>
               {% else %}
-                <span class="badge bg-secondary">Unknown</span>
+                <span class="badge bg-secondary">{{ log.status }}</span>
               {% endif %}
             </td>
           </tr>
